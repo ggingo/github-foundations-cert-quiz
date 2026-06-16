@@ -67,6 +67,11 @@
   .qhead{max-width:860px}
   .qtype{display:inline-block;font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:var(--muted);
     border:1px solid var(--border);border-radius:999px;padding:2px 10px;margin-bottom:14px}
+  .qtype.multi{color:#e6edf3;font-weight:700;border-color:#3fb950;background:rgba(63,185,80,.15)}
+  .qtype .num{color:#fff;font-weight:800}
+  .hint.multi{color:#e6edf3;font-size:14px;font-weight:600}
+  .hint .num{color:#fff;font-weight:800;background:rgba(63,185,80,.20);
+    border:1px solid #3fb950;border-radius:6px;padding:0 7px}
   .qtext{font-size:clamp(17px,1.4vw,20px);font-weight:600;margin:0 0 20px;white-space:pre-wrap;
     max-width:860px;line-height:1.45}
   .options{display:flex;flex-direction:column;gap:11px;max-width:860px}
@@ -430,10 +435,11 @@ function render(){
   const correctCount = q.options.filter(o=>o.correct).length;
   const opts = shuffle(q.options.map((o,idx)=>({o,idx})));
   let html='';
+  const isMulti = q.type==='multiple' && correctCount>1;
   const badge = q.type==='multiple'
-    ? `Select all that apply${correctCount>1?` — choose ${correctCount}`:''}`
+    ? `Select all that apply${correctCount>1?` — choose <span class="num">${correctCount}</span>`:''}`
     : 'Select one';
-  html += `<span class="qtype">${badge}</span>`;
+  html += `<span class="qtype${isMulti?' multi':''}">${badge}</span>`;
   html += `<p class="qtext">${esc(q.question)}</p>`;
   html += `<div class="options" id="opts">`;
   opts.forEach(({o,idx})=>{
@@ -451,7 +457,7 @@ function render(){
       <button id="submit" class="primary" disabled>Submit</button>
       <button id="nextBtn" class="secondary" style="display:none">Next →</button>
    </div>
-   <div class="hint" id="hint">${q.type==='multiple'?(correctCount>1?`Select ${correctCount} answers.`:'Choose one or more options.'):'Choose one option.'}</div>`;
+   <div class="hint${isMulti?' multi':''}" id="hint">${q.type==='multiple'?(correctCount>1?`Select <span class="num">${correctCount}</span> answers.`:'Choose one or more options.'):'Choose one option.'}</div>`;
   document.getElementById('quiz').innerHTML=html;
 
   const optsEl=document.getElementById('opts');

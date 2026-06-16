@@ -684,24 +684,25 @@ function render(){
   document.getElementById('retireBtn').addEventListener('click',retireCurrent);
 }
 
-// drop the current question out of this test without grading it.
-// it never touches attempts/correctAttempts, so it is excluded from the % correct.
+// drop the current question out of this test.
+// the running % correct (correctAttempts/attempts) is NEVER altered here, so:
+//   - retiring BEFORE submitting: nothing was graded, so it doesn't count toward %.
+//   - retiring AFTER submitting: the graded attempt stays counted toward %.
 function dropCurrent(){
   if(!current) return;
   const id=current.id;
-  if(lastGrade && lastGrade.id===id){   // undo the score impact of a graded answer being retired
-    if(attempts>0) attempts--;
-    if(lastGrade.allRight){
-      if(correctAttempts>0) correctAttempts--;
-      if(lastGrade.wasFirst && firstCorrect>0) firstCorrect--;
-    }
-    lastGrade=null;
-  }
-  queue=queue.filter(q=>q.id!==id);   // also removes any reinserted copies
+  const graded = !!(lastGrade && lastGrade.id===id);
+  const masteredCorrect = graded && lastGrade.allRight;   // answered correctly = a completed test item
+  queue=queue.filter(q=>q.id!==id);   // also removes any reinserted (wrong-answer) copies
   if(testSeen.has(id)){ testSeen.delete(id); }
   if(missedFirst.has(id)){ missedFirst.delete(id); updateImproveBtn(); }
-  if(answeredUnique.has(id)) answeredUnique.delete(id);
-  if(total>0) total--;                // shrink denominator so progress/score reflect only kept items
+  // keep a correctly-answered question in the denominator (it's mastered & done);
+  // otherwise remove it so progress/summary reflect only the questions still in play.
+  if(!masteredCorrect){
+    if(answeredUnique.has(id)) answeredUnique.delete(id);
+    if(total>0) total--;
+  }
+  lastGrade=null;
 }
 function skipCurrent(){
   if(locked) return;                  // skipping only makes sense before answering

@@ -96,6 +96,33 @@
   }
   .resume h2{margin:0 0 8px}
   .resume p{color:var(--muted);margin:0 0 18px}
+  /* count slider */
+  .setup{padding:8px 4px 4px}
+  .setup .lead{color:var(--muted);margin:0 0 18px}
+  .countbox{background:#0d1117;border:1px solid var(--border);border-radius:12px;padding:20px 22px;margin:0 0 22px;max-width:560px}
+  .countbox .row{display:flex;align-items:baseline;justify-content:space-between;gap:12px;margin-bottom:14px}
+  .countbox .lbl{font-size:13px;color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+  .countbox .val{font-size:30px;font-weight:800;color:var(--accent)}
+  .countbox .val small{font-size:14px;font-weight:600;color:var(--muted)}
+  input[type=range].slider{-webkit-appearance:none;appearance:none;width:100%;height:8px;border-radius:6px;
+    background:var(--border);outline:none;margin:6px 0 4px;cursor:pointer}
+  input[type=range].slider::-webkit-slider-thumb{-webkit-appearance:none;appearance:none;width:22px;height:22px;
+    border-radius:50%;background:var(--accent);border:3px solid #0d1117;cursor:pointer;box-shadow:0 0 0 1px var(--accent)}
+  input[type=range].slider::-moz-range-thumb{width:20px;height:20px;border-radius:50%;background:var(--accent);
+    border:3px solid #0d1117;cursor:pointer}
+  .ticks{display:flex;justify-content:space-between;font-size:11px;color:var(--muted);margin-top:2px}
+  .ticks span{cursor:pointer;padding:2px 4px;border-radius:4px}
+  .ticks span:hover{color:var(--text);background:#161b22}
+  .ticks span.on{color:var(--accent);font-weight:700}
+  /* improvement areas */
+  .focusbanner{display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:14px;color:#cfe3ff;
+    margin:12px 0 0;padding:10px 14px;background:#0d1f33;border-left:3px solid var(--accent);border-radius:8px}
+  .focusbanner button{margin-left:auto}
+  .misslist{list-style:decimal;margin:6px 0 22px;padding-left:24px;max-width:760px;
+    max-height:340px;overflow:auto;display:flex;flex-direction:column;gap:10px}
+  .misslist li{color:#c9d1d9;line-height:1.4}
+  .misslist li .mtype{font-size:11px;color:var(--yellow);text-transform:uppercase;letter-spacing:.04em;margin-left:6px}
+  .emptybox{color:var(--muted);background:#0d1117;border:1px dashed var(--border);border-radius:10px;padding:22px;text-align:center}
   /* summary */
   .summary{text-align:center;padding:30px 22px}
   .summary h2{margin:0 0 18px;font-size:24px}
@@ -113,6 +140,7 @@
   <header>
     <svg height="30" width="30" viewBox="0 0 16 16" fill="#e6edf3"><path d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"></path></svg>
     <h1>GitHub Foundations Certification Practice Quiz</h1>
+    <button id="improveBtn" class="iconbtn" style="display:none" title="Review and practice the questions you missed">⚑ Improvement areas</button>
     <button id="restartBtn" class="iconbtn" style="display:none" title="Start the quiz over">↻ Restart</button>
   </header>
 
@@ -173,19 +201,24 @@ let firstSeen = new Set();
 let answeredUnique = new Set();
 let current = null;
 let locked = false;
+let missedFirst = new Set();   // ids missed on first attempt = "improvement areas"
+let focusActive = false;       // focused practice on missed questions (not persisted)
+let chosenCount = 0;           // 0 = all of ACTIVE
 
+function transient(){ return filterActive || focusActive; }
 function shuffle(a){ for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];} return a; }
 
 // ---- persistence ----
 function saveProgress(phase){
-  if(filterActive) return;            // topic-filtered runs are not persisted
+  if(transient()) return;            // filtered / focused runs are not persisted
   try{
     const snap = {
-      sig: SIG, phase,
+      sig: SIG, phase, total,
       queue: queue.map(q=>q.id),
       current: current ? current.id : null,
       attempts, correctAttempts, firstCorrect,
       firstSeen:[...firstSeen], answeredUnique:[...answeredUnique],
+      missed:[...missedFirst],
       firstAttempt: QUESTIONS.map(q=>q.firstAttempt?1:0),
       ts: Date.now()
     };
@@ -212,6 +245,13 @@ function flashSaved(){
   _saveTimer=setTimeout(()=>{el.textContent="";},1500);
 }
 
+function updateImproveBtn(){
+  const b=document.getElementById('improveBtn');
+  if(!b) return;
+  const n=missedFirst.size;
+  b.textContent = n ? `⚑ Improvement areas (${n})` : '⚑ Improvement areas';
+}
+
 // ---- lifecycle ----
 function boot(){
   QUESTIONS.forEach((q,i)=>{ q.id=i; q.firstAttempt=true; });
@@ -219,29 +259,98 @@ function boot(){
   if(saved){ showResume(saved); } else { freshStart(); }
 }
 
+// fresh start now opens the setup screen so the user can pick how many questions
 function freshStart(){
-  if(!filterActive) clearProgress();
+  if(!transient()) clearProgress();
+  focusActive=false; setFocusBanner(false);
+  missedFirst=new Set(); updateImproveBtn();
+  showSetup();
+}
+
+// build the list of selectable sizes in steps of 25, with an "All" stop at the end
+function sizeStops(n){
+  const stops=[];
+  for(let v=25; v<n; v+=25) stops.push(v);
+  stops.push(n); // final stop = all questions
+  return stops;
+}
+
+function showSetup(){
+  const pool = ACTIVE.length;
+  const stops = sizeStops(pool);
+  let idx = stops.length-1;            // default to "All"
+  document.getElementById('restartBtn').style.display='none';
+  document.getElementById('improveBtn').style.display='none';
+  document.getElementById('counter').textContent='';
+  document.getElementById('remaining').textContent='';
+  document.getElementById('saveState').textContent='';
+  document.getElementById('prog').style.width='0%';
+  const ticks = stops.map((v,i)=>`<span data-i="${i}">${i===stops.length-1?'All':v}</span>`).join('');
+  document.getElementById('quiz').innerHTML=`
+    <div class="setup">
+      <h2 style="margin:0 0 6px">Set up your practice test</h2>
+      <p class="lead">Choose how many questions you want. The slider locks to steps of 25.</p>
+      <div class="countbox">
+        <div class="row">
+          <span class="lbl">Questions in this test</span>
+          <span class="val" id="cntVal"></span>
+        </div>
+        <input type="range" class="slider" id="cntSlider" min="0" max="${stops.length-1}" step="1" value="${idx}">
+        <div class="ticks" id="cntTicks">${ticks}</div>
+      </div>
+      <div class="actions">
+        <button class="primary" id="startBtn">Start quiz →</button>
+      </div>
+      <div class="hint">${pool} unique questions available. A random selection is drawn each time.</div>
+    </div>`;
+  const slider=document.getElementById('cntSlider');
+  const valEl=document.getElementById('cntVal');
+  const tickEls=[...document.querySelectorAll('#cntTicks span')];
+  function paint(){
+    const i=+slider.value;
+    const v=stops[i];
+    const all=(i===stops.length-1);
+    valEl.innerHTML = all ? `${v} <small>(all)</small>` : `${v}`;
+    tickEls.forEach(t=>t.classList.toggle('on',+t.dataset.i===i));
+  }
+  slider.addEventListener('input',paint);
+  tickEls.forEach(t=>t.addEventListener('click',()=>{ slider.value=t.dataset.i; paint(); }));
+  document.getElementById('startBtn').addEventListener('click',()=>{
+    const i=+slider.value;
+    beginTest(i===stops.length-1 ? 0 : stops[i]);
+  });
+  paint();
+}
+
+function beginTest(count){
+  chosenCount = count;
   attempts=0;correctAttempts=0;firstCorrect=0;
   firstSeen=new Set();answeredUnique=new Set();current=null;locked=false;
-  total = ACTIVE.length;
   ACTIVE.forEach(q=>q.firstAttempt=true);
-  queue = shuffle(ACTIVE.slice());
+  let pool = shuffle(ACTIVE.slice());
+  if(count && count < pool.length) pool = pool.slice(0,count);
+  queue = pool;
+  total = queue.length;
   document.getElementById('restartBtn').style.display='inline-block';
+  document.getElementById('improveBtn').style.display='inline-block';
+  updateImproveBtn();
   next();
 }
 
 function showResume(s){
   const mastered = s.answeredUnique.length;
+  const stotal = s.total || ACTIVE.length;
   const date = new Date(s.ts||Date.now());
   document.getElementById('restartBtn').style.display='none';
+  document.getElementById('improveBtn').style.display='none';
   document.getElementById('counter').textContent='';
   document.getElementById('remaining').textContent='';
-  document.getElementById('prog').style.width = (total?mastered/total*100:0)+'%';
+  document.getElementById('prog').style.width = (stotal?mastered/stotal*100:0)+'%';
   document.getElementById('quiz').innerHTML=`
     <div class="resume">
       <h2>Welcome back 👋</h2>
       <p>You have a saved session from ${date.toLocaleString()} —
-         <strong>${mastered}/${total}</strong> mastered, ${s.queue.length} still in the queue.</p>
+         <strong>${mastered}/${stotal}</strong> mastered, ${s.queue.length} still in the queue.</p>
       <div class="actions">
         <button class="primary" id="resumeBtn">Resume where I left off</button>
         <button class="secondary" id="freshBtn">Start over</button>
@@ -254,11 +363,15 @@ function showResume(s){
 function resume(s){
   attempts=s.attempts; correctAttempts=s.correctAttempts; firstCorrect=s.firstCorrect;
   firstSeen=new Set(s.firstSeen); answeredUnique=new Set(s.answeredUnique);
+  missedFirst=new Set(s.missed||[]);
   QUESTIONS.forEach((q,i)=>{ q.firstAttempt = s.firstAttempt ? !!s.firstAttempt[i] : true; });
   const byId = id => QUESTIONS[id];
   queue = (s.queue||[]).map(byId);
-  total = ACTIVE.length;
+  total = s.total || ACTIVE.length;
+  focusActive=false; setFocusBanner(false);
   document.getElementById('restartBtn').style.display='inline-block';
+  document.getElementById('improveBtn').style.display='inline-block';
+  updateImproveBtn();
   if(s.phase==='graded'){
     current=null; locked=false; next();
   } else {
@@ -360,6 +473,7 @@ function grade(){
   } else {
     verdict.className='verdict incorrect';
     verdict.textContent='✗ Incorrect';
+    if(wasFirst && !transient()){ missedFirst.add(q.id); updateImproveBtn(); }
     const pos=Math.floor(Math.random()*(queue.length+1));
     queue.splice(pos,0,q);
     document.getElementById('reinsert').style.display='block';
@@ -379,8 +493,9 @@ function grade(){
 }
 
 function summary(){
-  if(!filterActive) clearProgress();
+  if(!transient()) clearProgress();
   document.getElementById('restartBtn').style.display='none';
+  document.getElementById('improveBtn').style.display='none';
   const pct = total? Math.round(firstCorrect/total*100):0;
   const overall = attempts? Math.round(correctAttempts/attempts*100):0;
   const cls = pct>=80?'good':pct>=60?'mid':'low';
@@ -388,6 +503,32 @@ function summary(){
   document.getElementById('counter').textContent='Complete';
   document.getElementById('saveState').textContent='';
   document.getElementById('remaining').textContent=`${attempts} total attempts`;
+
+  if(focusActive){
+    document.getElementById('quiz').innerHTML=`
+      <div class="summary">
+        <h2>⚑ Focused practice complete!</h2>
+        <div class="l" style="color:var(--muted);text-transform:uppercase;font-size:12px;letter-spacing:.05em">Score on missed questions</div>
+        <div class="score ${cls}">${pct}%</div>
+        <div class="stats">
+          <div class="stat"><div class="n">${total}</div><div class="l">Practiced</div></div>
+          <div class="stat"><div class="n">${firstCorrect}</div><div class="l">Correct first try</div></div>
+          <div class="stat"><div class="n">${attempts}</div><div class="l">Total attempts</div></div>
+          <div class="stat"><div class="n">${overall}%</div><div class="l">Overall accuracy</div></div>
+        </div>
+        <div class="actions" style="justify-content:center">
+          <button class="primary" id="againBtn">↻ Practice these again</button>
+          <button class="secondary" id="backFullBtn">← Back to full quiz</button>
+        </div>
+      </div>`;
+    document.getElementById('againBtn').addEventListener('click',startFocus);
+    document.getElementById('backFullBtn').addEventListener('click',exitFocus);
+    return;
+  }
+
+  const missBtn = missedFirst.size
+    ? `<button class="secondary" id="practiceMissBtn">⚑ Practice ${missedFirst.size} missed question${missedFirst.size===1?'':'s'} →</button>`
+    : '';
   document.getElementById('quiz').innerHTML=`
     <div class="summary">
       <h2>🎉 Quiz Complete!</h2>
@@ -401,9 +542,91 @@ function summary(){
         <div class="stat"><div class="n">${overall}%</div><div class="l">Overall accuracy</div></div>
       </div>
       <div class="actions" style="justify-content:center">
-        <button class="primary" onclick="freshStart()">↻ Retake quiz</button>
+        <button class="primary" id="retakeBtn">↻ Retake quiz</button>
+        ${missBtn}
       </div>
     </div>`;
+  document.getElementById('retakeBtn').addEventListener('click',freshStart);
+  const pm=document.getElementById('practiceMissBtn');
+  if(pm) pm.addEventListener('click',startFocus);
+}
+
+// ---- improvement areas / focused practice ----
+function setFocusBanner(on){
+  const note=document.getElementById('filterNote');
+  if(on){
+    note.className='focusbanner';
+    note.style.display='flex';
+    note.innerHTML=`<span>⚑ <strong>Focused practice</strong> — drilling the ${total} question${total===1?'':'s'} you missed.</span>
+       <button class="iconbtn" id="exitFocusBtn">← Back to full quiz</button>`;
+    const b=document.getElementById('exitFocusBtn'); if(b) b.addEventListener('click',exitFocus);
+  } else if(note.classList.contains('focusbanner')){
+    note.className='filternote'; note.style.display='none'; note.innerHTML='';
+  }
+}
+
+function showImprovement(){
+  const miss=[...missedFirst].map(id=>QUESTIONS[id]).filter(Boolean);
+  document.getElementById('restartBtn').style.display='none';
+  document.getElementById('improveBtn').style.display='none';
+  setFocusBanner(false);
+  if(miss.length===0){
+    document.getElementById('quiz').innerHTML=`
+      <div class="setup">
+        <h2 style="margin:0 0 12px">⚑ Improvement areas</h2>
+        <div class="emptybox">Nothing to review yet — you haven't missed any questions on the first try. Keep going! 💪</div>
+        <div class="actions" style="margin-top:20px"><button class="secondary" id="backBtn">← Back to quiz</button></div>
+      </div>`;
+    document.getElementById('backBtn').addEventListener('click',returnToQuiz);
+    return;
+  }
+  const items=miss.map(q=>`<li>${esc(q.question)}${q.type==='multiple'?'<span class="mtype">multi</span>':''}</li>`).join('');
+  document.getElementById('quiz').innerHTML=`
+    <div class="setup">
+      <h2 style="margin:0 0 6px">⚑ Improvement areas</h2>
+      <p class="lead">${miss.length} question${miss.length===1?'':'s'} you answered incorrectly on the first try. Run a focused practice test on just these.</p>
+      <ol class="misslist">${items}</ol>
+      <div class="actions">
+        <button class="primary" id="focusBtn">Start focused practice →</button>
+        <button class="secondary" id="backBtn">← Back to quiz</button>
+      </div>
+    </div>`;
+  document.getElementById('focusBtn').addEventListener('click',startFocus);
+  document.getElementById('backBtn').addEventListener('click',returnToQuiz);
+}
+
+function startFocus(){
+  const items=[...missedFirst].map(id=>QUESTIONS[id]).filter(Boolean);
+  if(items.length===0){ showImprovement(); return; }
+  focusActive=true;
+  attempts=0;correctAttempts=0;firstCorrect=0;
+  firstSeen=new Set();answeredUnique=new Set();current=null;locked=false;
+  items.forEach(q=>q.firstAttempt=true);
+  queue=shuffle(items.slice());
+  total=queue.length;
+  document.getElementById('restartBtn').style.display='none';
+  document.getElementById('improveBtn').style.display='none';
+  setFocusBanner(true);
+  next();
+}
+
+// leave focus mode and reload the main quiz from the saved session (state was mutated by focus)
+function exitFocus(){
+  focusActive=false;
+  setFocusBanner(false);
+  ACTIVE=QUESTIONS;
+  total=QUESTIONS.length;
+  boot();
+}
+
+// return to the main quiz from the (non-mutating) improvement intro screen
+function returnToQuiz(){
+  document.getElementById('restartBtn').style.display='inline-block';
+  document.getElementById('improveBtn').style.display='inline-block';
+  updateImproveBtn();
+  if(!current){ next(); return; }
+  if(locked){ next(); return; }
+  render(); updateMeta();
 }
 
 function confirmRestart(){
@@ -512,6 +735,7 @@ function recomputeFilter(){
     return true;
   });
   filterActive=true;
+  focusActive=false;
   clr.style.display='inline-block';
   note.style.display='block';
   const parts=[];
@@ -521,6 +745,7 @@ function recomputeFilter(){
     note.className='filternote none';
     note.innerHTML=`No questions found — ${parts.join(' · ')}. <a href="#" id="clrLink">Show all questions</a>.`;
     document.getElementById('restartBtn').style.display='none';
+    document.getElementById('improveBtn').style.display='none';
     document.getElementById('counter').textContent='';
     document.getElementById('remaining').textContent='';
     document.getElementById('prog').style.width='0%';
@@ -537,6 +762,7 @@ function recomputeFilter(){
   ACTIVE.forEach(q=>q.firstAttempt=true);
   queue=shuffle(ACTIVE.slice());
   document.getElementById('restartBtn').style.display='inline-block';
+  document.getElementById('improveBtn').style.display='none';
   next();
 }
 
@@ -546,6 +772,7 @@ document.getElementById('searchInput').addEventListener('keydown',e=>{
 document.getElementById('searchClear').addEventListener('click',resetFilters);
 
 document.getElementById('restartBtn').addEventListener('click',confirmRestart);
+document.getElementById('improveBtn').addEventListener('click',showImprovement);
 document.addEventListener('keydown',e=>{
   if(e.target && e.target.id==='searchInput') return;   // let the search box handle Enter
   if(e.key==='Enter'){

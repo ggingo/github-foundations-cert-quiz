@@ -288,9 +288,13 @@ function next(){
 function render(){
   const q=current;
   const inputType = q.type==='multiple' ? 'checkbox':'radio';
+  const correctCount = q.options.filter(o=>o.correct).length;
   const opts = shuffle(q.options.map((o,idx)=>({o,idx})));
   let html='';
-  html += `<span class="qtype">${q.type==='multiple'?'Select all that apply':'Select one'}</span>`;
+  const badge = q.type==='multiple'
+    ? `Select all that apply${correctCount>1?` — choose ${correctCount}`:''}`
+    : 'Select one';
+  html += `<span class="qtype">${badge}</span>`;
   html += `<p class="qtext">${esc(q.question)}</p>`;
   html += `<div class="options" id="opts">`;
   opts.forEach(({o,idx})=>{
@@ -308,7 +312,7 @@ function render(){
       <button id="submit" class="primary" disabled>Submit</button>
       <button id="nextBtn" class="secondary" style="display:none">Next →</button>
    </div>
-   <div class="hint" id="hint">${q.type==='multiple'?'Choose one or more options.':'Choose one option.'}</div>`;
+   <div class="hint" id="hint">${q.type==='multiple'?(correctCount>1?`Select ${correctCount} answers.`:'Choose one or more options.'):'Choose one option.'}</div>`;
   document.getElementById('quiz').innerHTML=html;
 
   const optsEl=document.getElementById('opts');

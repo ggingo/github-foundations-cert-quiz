@@ -103,6 +103,9 @@
   .ghost{background:transparent;color:var(--muted);border-color:var(--border);font-weight:600}
   .ghost:hover{color:var(--text);border-color:#8b949e;background:#161b22}
   .ghost.danger:hover{color:#f85149;border-color:#f85149;background:rgba(248,81,73,.08)}
+  .resetrow{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:26px;
+    padding-top:18px;border-top:1px solid var(--border);max-width:560px}
+  .resetrow .resethint{font-size:12px;color:var(--muted);flex:1;min-width:200px}
   .hint{color:var(--muted);font-size:13px;margin-top:10px}
   @media (max-width:560px){
     header{flex-wrap:wrap}
@@ -319,6 +322,23 @@ function loadProgress(){
   }catch(e){ return null; }
 }
 function clearProgress(){ try{ localStorage.removeItem(STORE_KEY); }catch(e){} }
+// wipe EVERYTHING this app remembers: in-progress session, last-test history,
+// improvement areas, and the "don't ask again" retired list -> clean slate
+function resetAll(){
+  try{
+    localStorage.removeItem(STORE_KEY);
+    localStorage.removeItem(LASTTEST_KEY);
+    localStorage.removeItem(RETIRED_KEY);
+  }catch(e){}
+  retiredKeys=new Set();
+  missedFirst=new Set();
+  testSeen=new Set();
+  lastGrade=null;
+  filterActive=false; focusActive=false;
+  ACTIVE=QUESTIONS; total=QUESTIONS.length;
+  QUESTIONS.forEach(q=>q.firstAttempt=true);
+  updateImproveBtn();
+}
 let _saveTimer=null;
 function flashSaved(){
   const el=document.getElementById('saveState');
@@ -424,6 +444,10 @@ function showSetup(){
         <button class="primary" id="startBtn">Start quiz →</button>
       </div>
       <div class="hint" id="setupHint"></div>
+      <div class="resetrow">
+        <button class="ghost danger" id="resetAllBtn" title="Forget all saved progress, history, improvement areas, and retired questions">↺ Reset all history</button>
+        <span class="resethint">Clears saved progress, last-test memory, improvement areas, and restores every “Don’t ask again” question.</span>
+      </div>
     </div>`;
 
   const getOpts = ()=>{
@@ -487,6 +511,13 @@ function showSetup(){
   }
   const rr=document.getElementById('restoreRetired');
   if(rr) rr.addEventListener('click',e=>{ e.preventDefault(); retiredKeys=new Set(); saveRetired(); showSetup(); });
+  const resetBtn=document.getElementById('resetAllBtn');
+  if(resetBtn) resetBtn.addEventListener('click',()=>{
+    if(confirm('Reset all history?\n\nThis forgets your saved progress, last-test memory, improvement areas, and restores every “Don’t ask again” question. This cannot be undone.')){
+      resetAll();
+      showSetup();
+    }
+  });
   document.getElementById('startBtn').addEventListener('click',()=>{
     if(document.getElementById('startBtn').disabled) return;
     const i=+document.getElementById('cntSlider').value;

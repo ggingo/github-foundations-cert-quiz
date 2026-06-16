@@ -126,6 +126,25 @@
   .ticks span{cursor:pointer;padding:2px 4px;border-radius:4px}
   .ticks span:hover{color:var(--text);background:#161b22}
   .ticks span.on{color:var(--accent);font-weight:700}
+  .prioropts{background:#0d1117;border:1px solid var(--border);border-radius:12px;
+    padding:16px 20px;margin:0 0 22px;max-width:560px}
+  .prioropts .ptitle{font-size:13px;color:var(--muted);margin:0 0 12px}
+  .prioropts .ptitle b{color:var(--text)}
+  .prioropts .chk{display:flex;align-items:flex-start;gap:10px;cursor:pointer;
+    padding:9px 0;font-size:15px;color:var(--text);line-height:1.4}
+  .prioropts .chk + .chk{border-top:1px solid var(--border)}
+  .prioropts .chk input{width:18px;height:18px;margin-top:1px;accent-color:var(--accent);cursor:pointer;flex:0 0 auto}
+  .prioropts .chk b{color:#fff}
+  .typesel{display:flex;gap:0;margin:0 0 22px;max-width:560px;border:1px solid var(--border);
+    border-radius:12px;overflow:hidden}
+  .typesel button{flex:1;font:inherit;font-size:14px;font-weight:600;color:var(--muted);
+    background:#0d1117;border:0;border-right:1px solid var(--border);padding:14px 10px;cursor:pointer;
+    display:flex;flex-direction:column;align-items:center;gap:3px;line-height:1.2}
+  .typesel button:last-child{border-right:0}
+  .typesel button .cnt{font-size:12px;font-weight:600;color:var(--muted)}
+  .typesel button:hover{background:#161b22;color:var(--text)}
+  .typesel button.on{background:rgba(63,185,80,.15);color:#fff}
+  .typesel button.on .cnt{color:#3fb950}
   /* improvement areas */
   .focusbanner{display:flex;align-items:center;gap:12px;flex-wrap:wrap;font-size:14px;color:#cfe3ff;
     margin:12px 0 0;padding:10px 14px;background:#0d1f33;border-left:3px solid var(--accent);border-radius:8px}
@@ -217,9 +236,33 @@ let locked = false;
 let missedFirst = new Set();   // ids missed on first attempt = "improvement areas"
 let focusActive = false;       // focused practice on missed questions (not persisted)
 let chosenCount = 0;           // 0 = all of ACTIVE
+let testSeen = new Set();      // ids included in the current main test
+
+const LASTTEST_KEY = STORE_KEY + "_lasttest";
 
 function transient(){ return filterActive || focusActive; }
 function shuffle(a){ for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];} return a; }
+
+// remember the most recent (non-transient) test so the next setup can offer to
+// reuse previously-seen / previously-missed questions
+function saveLastTest(){
+  if(transient()) return;
+  if(!testSeen.size) return;
+  try{
+    localStorage.setItem(LASTTEST_KEY, JSON.stringify({
+      sig: SIG, seen:[...testSeen], missed:[...missedFirst],
+      pool: ACTIVE.length, ts: Date.now()
+    }));
+  }catch(e){}
+}
+function loadLastTest(){
+  try{
+    const r=localStorage.getItem(LASTTEST_KEY); if(!r) return null;
+    const o=JSON.parse(r);
+    if(!o || o.sig!==SIG || !Array.isArray(o.seen)) return null;
+    return o;
+  }catch(e){ return null; }
+}
 
 // ---- persistence ----
 function saveProgress(phase){
@@ -232,10 +275,12 @@ function saveProgress(phase){
       attempts, correctAttempts, firstCorrect,
       firstSeen:[...firstSeen], answeredUnique:[...answeredUnique],
       missed:[...missedFirst],
+      seen:[...testSeen],
       firstAttempt: QUESTIONS.map(q=>q.firstAttempt?1:0),
       ts: Date.now()
     };
     localStorage.setItem(STORE_KEY, JSON.stringify(snap));
+    saveLastTest();
     flashSaved();
   }catch(e){}
 }
@@ -276,6 +321,7 @@ function boot(){
 function freshStart(){
   if(!transient()) clearProgress();
   focusActive=false; setFocusBanner(false);
+  filterActive=false; ACTIVE=QUESTIONS; total=QUESTIONS.length;
   missedFirst=new Set(); updateImproveBtn();
   showSetup();
 }
@@ -288,10 +334,21 @@ function sizeStops(n){
   return stops;
 }
 
+// pick the eligible question pool for the chosen type + prior-test options.
+// returns {forced, rest}: forced = previously-missed questions to guarantee in, rest = the rest.
+function eligible(typeSel, includeSeen, includeMissed, seenSet, missedSet){
+  const typeOk = q => typeSel==='both' ? true
+                    : typeSel==='multiple' ? q.type==='multiple'
+                    : q.type!=='multiple';
+  const base = ACTIVE.filter(typeOk);
+  let forced = (includeMissed && missedSet) ? base.filter(q=>missedSet.has(q.id)) : [];
+  const fIds = new Set(forced.map(q=>q.id));
+  let rest = base.filter(q=>!fIds.has(q.id));
+  if(!includeSeen && seenSet) rest = rest.filter(q=>!seenSet.has(q.id));
+  return {forced, rest};
+}
+
 function showSetup(){
-  const pool = ACTIVE.length;
-  const stops = sizeStops(pool);
-  let idx = stops.length-1;            // default to "All"
   document.getElementById('restartBtn').style.display='none';
   document.getElementById('improveBtn').style.display='none';
   hideScore();
@@ -299,52 +356,137 @@ function showSetup(){
   document.getElementById('remaining').textContent='';
   document.getElementById('saveState').textContent='';
   document.getElementById('prog').style.width='0%';
-  const ticks = stops.map((v,i)=>`<span data-i="${i}">${i===stops.length-1?'All':v}</span>`).join('');
+
+  const multiCount = ACTIVE.filter(q=>q.type==='multiple').length;
+  const singleCount = ACTIVE.length - multiCount;
+
+  const last = loadLastTest();
+  const activeIds = new Set(ACTIVE.map(q=>q.id));
+  const seenIds = last ? last.seen.filter(id=>activeIds.has(id)) : [];
+  const missedIds = last ? last.missed.filter(id=>activeIds.has(id)) : [];
+  const seenSet = new Set(seenIds), missedSet = new Set(missedIds);
+  const showPrior = seenIds.length>0 && seenIds.length < ACTIVE.length;
+
+  let typeSel = 'both';
+
+  const priorHtml = showPrior ? `
+      <div class="prioropts">
+        <p class="ptitle">You last took a test covering <b>${seenIds.length}</b> of ${ACTIVE.length} questions.</p>
+        <label class="chk"><input type="checkbox" id="optSeen" checked>
+          <span>Include questions <b>from your last test</b> (uncheck to draw only questions you haven't seen yet)</span></label>
+        ${missedIds.length ? `<label class="chk"><input type="checkbox" id="optMissed">
+          <span>Re-include the <b>${missedIds.length}</b> question${missedIds.length>1?'s':''} you <b>missed last time</b></span></label>` : ''}
+      </div>` : '';
+
   document.getElementById('quiz').innerHTML=`
     <div class="setup">
       <h2 style="margin:0 0 6px">Set up your practice test</h2>
-      <p class="lead">Choose how many questions you want. The slider locks to steps of 25.</p>
-      <div class="countbox">
-        <div class="row">
-          <span class="lbl">Questions in this test</span>
-          <span class="val" id="cntVal"></span>
-        </div>
-        <input type="range" class="slider" id="cntSlider" min="0" max="${stops.length-1}" step="1" value="${idx}">
-        <div class="ticks" id="cntTicks">${ticks}</div>
+      <p class="lead">Pick the question types, how many you want, and start. The slider locks to steps of 25.</p>
+      <div class="typesel" id="typeSel">
+        <button data-t="both" class="on">Both<span class="cnt">${ACTIVE.length}</span></button>
+        <button data-t="single">Single answer<span class="cnt">${singleCount}</span></button>
+        <button data-t="multiple">Multiple answer<span class="cnt">${multiCount}</span></button>
       </div>
+      ${priorHtml}
+      <div class="countbox" id="countbox"></div>
       <div class="actions">
         <button class="primary" id="startBtn">Start quiz →</button>
       </div>
-      <div class="hint">${pool} unique questions available. A random selection is drawn each time.</div>
+      <div class="hint" id="setupHint"></div>
     </div>`;
-  const slider=document.getElementById('cntSlider');
-  const valEl=document.getElementById('cntVal');
-  const tickEls=[...document.querySelectorAll('#cntTicks span')];
-  function paint(){
-    const i=+slider.value;
-    const v=stops[i];
-    const all=(i===stops.length-1);
-    valEl.innerHTML = all ? `${v} <small>(all)</small>` : `${v}`;
-    tickEls.forEach(t=>t.classList.toggle('on',+t.dataset.i===i));
+
+  const getOpts = ()=>{
+    const includeSeen = showPrior ? document.getElementById('optSeen').checked : true;
+    const om = document.getElementById('optMissed');
+    const includeMissed = !!(om && om.checked);
+    return {includeSeen, includeMissed};
+  };
+
+  let stops=[], idx=0;
+  function available(){
+    const {includeSeen, includeMissed} = getOpts();
+    const {forced, rest} = eligible(typeSel, includeSeen, includeMissed, seenSet, missedSet);
+    return forced.length + rest.length;
   }
-  slider.addEventListener('input',paint);
-  tickEls.forEach(t=>t.addEventListener('click',()=>{ slider.value=t.dataset.i; paint(); }));
-  document.getElementById('startBtn').addEventListener('click',()=>{
-    const i=+slider.value;
-    beginTest(i===stops.length-1 ? 0 : stops[i]);
+  function rebuild(){
+    const pool = available();
+    const startBtn = document.getElementById('startBtn');
+    const hint = document.getElementById('setupHint');
+    if(pool<=0){
+      document.getElementById('countbox').innerHTML='';
+      startBtn.disabled=true;
+      hint.textContent='No questions match these options. Adjust your selections.';
+      return;
+    }
+    startBtn.disabled=false;
+    stops = sizeStops(pool);
+    idx = stops.length-1;
+    const ticks = stops.map((v,i)=>`<span data-i="${i}">${i===stops.length-1?'All':v}</span>`).join('');
+    document.getElementById('countbox').innerHTML=`
+      <div class="row">
+        <span class="lbl">Questions in this test</span>
+        <span class="val" id="cntVal"></span>
+      </div>
+      <input type="range" class="slider" id="cntSlider" min="0" max="${stops.length-1}" step="1" value="${idx}">
+      <div class="ticks" id="cntTicks">${ticks}</div>`;
+    hint.textContent = `${pool} question${pool>1?'s':''} available with these options. A random selection is drawn each time.`;
+    const slider=document.getElementById('cntSlider');
+    const valEl=document.getElementById('cntVal');
+    const tickEls=[...document.querySelectorAll('#cntTicks span')];
+    function paint(){
+      const i=+slider.value, v=stops[i], all=(i===stops.length-1);
+      valEl.innerHTML = all ? `${v} <small>(all)</small>` : `${v}`;
+      tickEls.forEach(t=>t.classList.toggle('on',+t.dataset.i===i));
+    }
+    slider.addEventListener('input',paint);
+    tickEls.forEach(t=>t.addEventListener('click',()=>{ slider.value=t.dataset.i; paint(); }));
+    paint();
+  }
+
+  [...document.querySelectorAll('#typeSel button')].forEach(b=>{
+    b.addEventListener('click',()=>{
+      typeSel=b.dataset.t;
+      document.querySelectorAll('#typeSel button').forEach(x=>x.classList.toggle('on',x===b));
+      rebuild();
+    });
   });
-  paint();
+  if(showPrior){
+    document.getElementById('optSeen').addEventListener('change',rebuild);
+    const om=document.getElementById('optMissed'); if(om) om.addEventListener('change',rebuild);
+  }
+  document.getElementById('startBtn').addEventListener('click',()=>{
+    if(document.getElementById('startBtn').disabled) return;
+    const i=+document.getElementById('cntSlider').value;
+    const count = (i===stops.length-1) ? 0 : stops[i];
+    const {includeSeen, includeMissed} = getOpts();
+    beginTest(count, {typeSel, includeSeen, includeMissed, seenSet, missedSet});
+  });
+  rebuild();
 }
 
-function beginTest(count){
+function beginTest(count, opts){
+  opts = opts || {};
+  const typeSel = opts.typeSel || 'both';
+  const includeSeen = opts.includeSeen !== false;
+  const includeMissed = !!opts.includeMissed;
   chosenCount = count;
   attempts=0;correctAttempts=0;firstCorrect=0;
   firstSeen=new Set();answeredUnique=new Set();current=null;locked=false;
   ACTIVE.forEach(q=>q.firstAttempt=true);
-  let pool = shuffle(ACTIVE.slice());
-  if(count && count < pool.length) pool = pool.slice(0,count);
+
+  const {forced, rest} = eligible(typeSel, includeSeen, includeMissed, opts.seenSet, opts.missedSet);
+  shuffle(forced); shuffle(rest);
+  let pool;
+  if(count && count>0){
+    pool = forced.slice(0, count);
+    for(const q of rest){ if(pool.length>=count) break; pool.push(q); }
+    shuffle(pool);
+  } else {
+    pool = shuffle(forced.concat(rest));
+  }
   queue = pool;
   total = queue.length;
+  testSeen = new Set(queue.map(q=>q.id));
   document.getElementById('restartBtn').style.display='inline-block';
   document.getElementById('improveBtn').style.display='inline-block';
   updateImproveBtn();
@@ -379,6 +521,7 @@ function resume(s){
   attempts=s.attempts; correctAttempts=s.correctAttempts; firstCorrect=s.firstCorrect;
   firstSeen=new Set(s.firstSeen); answeredUnique=new Set(s.answeredUnique);
   missedFirst=new Set(s.missed||[]);
+  testSeen=new Set(s.seen||s.queue||[]);
   QUESTIONS.forEach((q,i)=>{ q.firstAttempt = s.firstAttempt ? !!s.firstAttempt[i] : true; });
   const byId = id => QUESTIONS[id];
   queue = (s.queue||[]).map(byId);
@@ -525,7 +668,7 @@ function grade(){
 }
 
 function summary(){
-  if(!transient()) clearProgress();
+  if(!transient()){ saveLastTest(); clearProgress(); }
   document.getElementById('restartBtn').style.display='none';
   document.getElementById('improveBtn').style.display='none';
   hideScore();

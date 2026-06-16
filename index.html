@@ -241,6 +241,7 @@ let missedFirst = new Set();   // ids missed on first attempt = "improvement are
 let focusActive = false;       // focused practice on missed questions (not persisted)
 let chosenCount = 0;           // 0 = all of ACTIVE
 let testSeen = new Set();      // ids included in the current main test
+let lastGrade = null;          // {id, allRight, wasFirst} for the just-graded question
 
 const LASTTEST_KEY = STORE_KEY + "_lasttest";
 const RETIRED_KEY = STORE_KEY + "_retired";
@@ -608,6 +609,7 @@ function next(){
 
 function render(){
   const q=current;
+  lastGrade=null;
   const inputType = q.type==='multiple' ? 'checkbox':'radio';
   const correctCount = q.options.filter(o=>o.correct).length;
   const opts = shuffle(q.options.map((o,idx)=>({o,idx})));
@@ -656,6 +658,14 @@ function render(){
 function dropCurrent(){
   if(!current) return;
   const id=current.id;
+  if(lastGrade && lastGrade.id===id){   // undo the score impact of a graded answer being retired
+    if(attempts>0) attempts--;
+    if(lastGrade.allRight){
+      if(correctAttempts>0) correctAttempts--;
+      if(lastGrade.wasFirst && firstCorrect>0) firstCorrect--;
+    }
+    lastGrade=null;
+  }
   queue=queue.filter(q=>q.id!==id);   // also removes any reinserted copies
   if(testSeen.has(id)){ testSeen.delete(id); }
   if(missedFirst.has(id)){ missedFirst.delete(id); updateImproveBtn(); }
@@ -663,16 +673,15 @@ function dropCurrent(){
   if(total>0) total--;                // shrink denominator so progress/score reflect only kept items
 }
 function skipCurrent(){
-  if(locked) return;
+  if(locked) return;                  // skipping only makes sense before answering
   dropCurrent();
   current=null; locked=false;
   saveProgress('question');
   next();
 }
-function retireCurrent(){
-  if(locked) return;
-  const q=current;
-  retiredKeys.add(q._key);
+function retireCurrent(){             // allowed before OR after submitting
+  if(!current) return;
+  retiredKeys.add(current._key);
   saveRetired();
   dropCurrent();
   current=null; locked=false;
@@ -707,6 +716,7 @@ function grade(){
 
   attempts++;
   const wasFirst=q.firstAttempt; q.firstAttempt=false;
+  lastGrade={id:q.id, allRight, wasFirst};
   const verdict=document.getElementById('verdict');
   if(allRight){
     correctAttempts++;
@@ -727,6 +737,9 @@ function grade(){
     ex.textContent=q.explanation; ex.style.display='block';
   }
   document.getElementById('submit').style.display='none';
+  const sk=document.getElementById('skipBtn'); if(sk) sk.style.display='none';
+  const rt=document.getElementById('retireBtn');
+  if(rt){ rt.textContent="✕ Don't ask this again"; rt.title="You've got this one — remove it from all future tests (won't count toward your score)"; }
   const nb=document.getElementById('nextBtn');
   nb.style.display='inline-block';
   nb.textContent = queue.length===0 ? 'See results →' : 'Next →';

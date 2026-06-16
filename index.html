@@ -20,6 +20,13 @@
   .iconbtn{font:inherit;font-size:13px;font-weight:600;background:#21262d;color:var(--text);
     border:1px solid var(--border);border-radius:8px;padding:7px 12px;cursor:pointer;white-space:nowrap}
   .iconbtn:hover{border-color:#8b949e}
+  .scoretally{font:inherit;font-size:13px;font-weight:700;white-space:nowrap;
+    border:1px solid var(--border);border-radius:8px;padding:7px 12px;
+    background:#161b22;color:var(--text)}
+  .scoretally b{font-weight:700}
+  .scoretally .pct{color:#3fb950}
+  .scoretally.low .pct{color:#f85149}
+  .scoretally .frac{color:#8b949e;font-weight:600}
   .search{display:flex;gap:8px;margin:4px 0 0}
   .search input{flex:1;font:inherit;font-size:14px;background:var(--panel);color:var(--text);
     border:1px solid var(--border);border-radius:8px;padding:9px 12px}
@@ -140,6 +147,7 @@
   <header>
     <svg height="30" width="30" viewBox="0 0 16 16" fill="#e6edf3"><path d="M8 0c4.42 0 8 3.58 8 8a8.013 8.013 0 0 1-5.45 7.59c-.4.08-.55-.17-.55-.38 0-.27.01-1.13.01-2.2 0-.75-.25-1.23-.54-1.48 1.78-.2 3.65-.88 3.65-3.95 0-.88-.31-1.59-.82-2.15.08-.2.36-1.02-.08-2.12 0 0-.67-.22-2.2.82-.64-.18-1.32-.27-2-.27-.68 0-1.36.09-2 .27-1.53-1.03-2.2-.82-2.2-.82-.44 1.1-.16 1.92-.08 2.12-.51.56-.82 1.28-.82 2.15 0 3.06 1.86 3.75 3.64 3.95-.23.2-.44.55-.51 1.07-.46.21-1.61.55-2.33-.66-.15-.24-.6-.83-1.23-.82-.67.01-.27.38.01.53.34.19.73.9.82 1.13.16.45.68 1.31 2.69.94 0 .67.01 1.3.01 1.49 0 .21-.15.45-.55.38A7.995 7.995 0 0 1 0 8c0-4.42 3.58-8 8-8Z"></path></svg>
     <h1>GitHub Foundations Certification Practice Quiz</h1>
+    <span id="scoreTally" class="scoretally" style="display:none" title="Running percentage of answers you've gotten correct this session"></span>
     <button id="improveBtn" class="iconbtn" style="display:none" title="Review and practice the questions you missed">⚑ Improvement areas</button>
     <button id="restartBtn" class="iconbtn" style="display:none" title="Start the quiz over">↻ Restart</button>
   </header>
@@ -281,6 +289,7 @@ function showSetup(){
   let idx = stops.length-1;            // default to "All"
   document.getElementById('restartBtn').style.display='none';
   document.getElementById('improveBtn').style.display='none';
+  hideScore();
   document.getElementById('counter').textContent='';
   document.getElementById('remaining').textContent='';
   document.getElementById('saveState').textContent='';
@@ -343,6 +352,7 @@ function showResume(s){
   const date = new Date(s.ts||Date.now());
   document.getElementById('restartBtn').style.display='none';
   document.getElementById('improveBtn').style.display='none';
+  hideScore();
   document.getElementById('counter').textContent='';
   document.getElementById('remaining').textContent='';
   document.getElementById('prog').style.width = (stotal?mastered/stotal*100:0)+'%';
@@ -381,11 +391,27 @@ function resume(s){
   }
 }
 
+function updateScore(){
+  const el=document.getElementById('scoreTally');
+  if(!el) return;
+  if(attempts>0){
+    const pct=Math.round(correctAttempts/attempts*100);
+    el.classList.toggle('low', pct<70);
+    el.innerHTML=`<span class="pct">${pct}%</span> correct <span class="frac">(${correctAttempts}/${attempts})</span>`;
+  } else {
+    el.classList.remove('low');
+    el.innerHTML=`<span class="frac">No answers yet</span>`;
+  }
+  el.style.display='inline-block';
+}
+function hideScore(){ const el=document.getElementById('scoreTally'); if(el) el.style.display='none'; }
+
 function updateMeta(){
   const done = answeredUnique.size;
   document.getElementById('counter').textContent = `${done}/${total} mastered`;
   document.getElementById('remaining').textContent = `${queue.length} in queue · ${attempts} attempts`;
   document.getElementById('prog').style.width = (total? (done/total*100):0) + '%';
+  updateScore();
 }
 
 function next(){
@@ -496,6 +522,7 @@ function summary(){
   if(!transient()) clearProgress();
   document.getElementById('restartBtn').style.display='none';
   document.getElementById('improveBtn').style.display='none';
+  hideScore();
   const pct = total? Math.round(firstCorrect/total*100):0;
   const overall = attempts? Math.round(correctAttempts/attempts*100):0;
   const cls = pct>=80?'good':pct>=60?'mid':'low';
@@ -569,6 +596,7 @@ function showImprovement(){
   const miss=[...missedFirst].map(id=>QUESTIONS[id]).filter(Boolean);
   document.getElementById('restartBtn').style.display='none';
   document.getElementById('improveBtn').style.display='none';
+  hideScore();
   setFocusBanner(false);
   if(miss.length===0){
     document.getElementById('quiz').innerHTML=`
@@ -746,6 +774,7 @@ function recomputeFilter(){
     note.innerHTML=`No questions found — ${parts.join(' · ')}. <a href="#" id="clrLink">Show all questions</a>.`;
     document.getElementById('restartBtn').style.display='none';
     document.getElementById('improveBtn').style.display='none';
+    hideScore();
     document.getElementById('counter').textContent='';
     document.getElementById('remaining').textContent='';
     document.getElementById('prog').style.width='0%';

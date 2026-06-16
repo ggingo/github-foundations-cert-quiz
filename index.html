@@ -13,7 +13,7 @@
   *{box-sizing:border-box}
   body{margin:0;font-family:-apple-system,BlinkMacSystemFont,"Segoe UI",Helvetica,Arial,sans-serif;
     background:var(--bg);color:var(--text);line-height:1.5}
-  .wrap{max-width:820px;margin:0 auto;padding:24px 16px 80px}
+  .wrap{max-width:1060px;margin:0 auto;padding:24px 16px 80px}
   header{display:flex;align-items:center;gap:12px;margin-bottom:8px}
   header svg{flex:0 0 auto}
   h1{font-size:20px;margin:0;flex:1}
@@ -28,6 +28,27 @@
     background:#0f1c16;border-left:3px solid var(--green-bd);border-radius:6px}
   .filternote.none{background:var(--red-bg);border-left-color:var(--red-bd);color:#f0b0ac}
   .filternote a{color:var(--accent)}
+  .layout{display:flex;gap:20px;align-items:flex-start;margin-top:16px}
+  .main{flex:1;min-width:0}
+  .sidebar{flex:0 0 232px;position:sticky;top:16px;max-height:calc(100vh - 110px);overflow:auto;
+    background:var(--panel);border:1px solid var(--border);border-radius:12px;padding:12px}
+  .side-h{display:flex;align-items:center;gap:6px;margin:2px 2px 10px}
+  .side-h .ttl{flex:1;font-size:12px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:.05em}
+  .side-h button{font:inherit;font-size:11px;font-weight:600;background:#21262d;color:var(--text);
+    border:1px solid var(--border);border-radius:6px;padding:3px 8px;cursor:pointer}
+  .side-h button:hover{border-color:#8b949e}
+  .sublist{list-style:none;margin:0;padding:0;display:flex;flex-direction:column;gap:2px}
+  .sublist label{display:flex;align-items:center;gap:9px;padding:7px 8px;border-radius:8px;cursor:pointer;font-size:13.5px}
+  .sublist label:hover{background:#0d1117}
+  .sublist label.on{background:#10243b}
+  .sublist input{width:15px;height:15px;accent-color:var(--accent);flex:0 0 auto;cursor:pointer}
+  .sublist .lbl{flex:1;min-width:0}
+  .sublist .cnt{font-size:11px;color:var(--muted);background:#0d1117;border:1px solid var(--border);
+    border-radius:999px;padding:0 7px;line-height:17px}
+  @media (max-width:760px){
+    .layout{flex-direction:column}
+    .sidebar{flex:none;width:100%;position:static;max-height:230px;order:-1}
+  }
   .bar{height:8px;background:var(--panel);border:1px solid var(--border);border-radius:6px;overflow:hidden;margin:16px 0 6px}
   .bar>div{height:100%;background:linear-gradient(90deg,#1f6feb,#2ea043);width:0;transition:width .3s}
   .meta{display:flex;justify-content:space-between;align-items:center;font-size:13px;color:var(--muted);margin-bottom:18px;gap:10px}
@@ -91,14 +112,27 @@
   </div>
   <div id="filterNote" class="filternote" style="display:none"></div>
 
-  <div class="bar"><div id="prog"></div></div>
-  <div class="meta">
-    <span id="counter"></span>
-    <span id="saveState" class="save"></span>
-    <span id="remaining"></span>
-  </div>
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="side-h">
+        <span class="ttl">Subjects</span>
+        <button id="subAll" title="Select every subject">All</button>
+        <button id="subClear" title="Clear selection">Clear</button>
+      </div>
+      <ul id="subList" class="sublist"></ul>
+    </aside>
 
-  <div id="quiz" class="card"></div>
+    <div class="main">
+      <div class="bar"><div id="prog"></div></div>
+      <div class="meta">
+        <span id="counter"></span>
+        <span id="saveState" class="save"></span>
+        <span id="remaining"></span>
+      </div>
+
+      <div id="quiz" class="card"></div>
+    </div>
+  </div>
 </div>
 
 <script>
@@ -365,59 +399,136 @@ function confirmRestart(){
 
 function esc(s){return String(s==null?'':s).replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}
 
-// ---- topic search / filter ----
+// ---- subjects + topic search / filter ----
+const SUBJECTS=[
+  {key:'git',label:'Git & Version Control',kw:['version control','distributed','git ','staging','snapshot of a repository']},
+  {key:'repos',label:'Repositories',kw:['repositor','readme','wiki','pinned','.github','default branch']},
+  {key:'branches',label:'Branches & Merging',kw:['branch','merge','merging','rebase']},
+  {key:'commits',label:'Commits',kw:['commit']},
+  {key:'pr',label:'Pull Requests',kw:['pull request','draft pull','code review','reviewer','status check','closes #']},
+  {key:'issues',label:'Issues',kw:['issue']},
+  {key:'discussions',label:'Discussions',kw:['discussion']},
+  {key:'actions',label:'Actions / CI-CD',kw:['github actions','workflow','ci/cd','continuous integration','runner']},
+  {key:'pages',label:'GitHub Pages',kw:['github pages','static site','static website']},
+  {key:'forks',label:'Forks & Cloning',kw:['fork','clone','cloning']},
+  {key:'collab',label:'Collaboration & Access',kw:['collaborator','permission','write access','read access','codeowners','invite']},
+  {key:'org',label:'Organizations & Teams',kw:['organization','team','security manager','innersource','inner source','member']},
+  {key:'plans',label:'Accounts, Plans & Billing',kw:['pricing','billing','free plan','github pro','enterprise','team plan','marketplace','plan for']},
+  {key:'sponsors',label:'Open Source & Sponsors',kw:['open source','sponsor','license','community']},
+  {key:'security',label:'Security & Auth',kw:['security','secret scanning','codeql','dependabot','vulnerab','branch protection','2fa','two-factor','multi-factor','authentication','personal access token','passkey','security key']},
+  {key:'copilot',label:'GitHub Copilot',kw:['copilot']},
+  {key:'apps',label:'Desktop, Mobile & CLI',kw:['github desktop','github mobile','github cli','command line','gui application']},
+  {key:'projects',label:'Projects & Planning',kw:['github projects','project board','project template','task list','project as a template']},
+  {key:'markdown',label:'Markdown & Writing',kw:['markdown','slash command','task list']},
+  {key:'profile',label:'Profile & Social',kw:['following','follow ','followers','profile','gist']},
+  {key:'insights',label:'Insights & Activity',kw:['insights','pulse','graph','contribution']}
+];
+const SUBJECT_LABEL={general:'General / Other'};
+SUBJECTS.forEach(s=>SUBJECT_LABEL[s.key]=s.label);
+
+let selectedSubjects=new Set();
+let searchWords=[];
+
 function questionHaystack(q){
-  let s = (q.question||"");
-  for(const o of (q.options||[])) s += " " + (o.text||"");
-  if(q.explanation) s += " " + q.explanation;
+  let s=(q.question||"");
+  for(const o of (q.options||[])) s+=" "+(o.text||"");
+  if(q.explanation) s+=" "+q.explanation;
   return s.toLowerCase();
 }
+
+function initSubjects(){
+  QUESTIONS.forEach(q=>{
+    const h=questionHaystack(q);
+    const tags=[];
+    for(const s of SUBJECTS){ if(s.kw.some(k=>h.includes(k))) tags.push(s.key); }
+    if(tags.length===0) tags.push('general');
+    q._subjects=tags;
+  });
+  const counts={};
+  QUESTIONS.forEach(q=>q._subjects.forEach(k=>counts[k]=(counts[k]||0)+1));
+  let html='';
+  for(const s of SUBJECTS){
+    const c=counts[s.key]||0; if(!c) continue;
+    html+=`<li><label><input type="checkbox" value="${s.key}"><span class="lbl">${esc(s.label)}</span><span class="cnt">${c}</span></label></li>`;
+  }
+  if(counts['general']) html+=`<li><label><input type="checkbox" value="general"><span class="lbl">General / Other</span><span class="cnt">${counts['general']}</span></label></li>`;
+  const ul=document.getElementById('subList');
+  ul.innerHTML=html;
+  ul.addEventListener('change',e=>{
+    const cb=e.target.closest('input'); if(!cb) return;
+    if(cb.checked) selectedSubjects.add(cb.value); else selectedSubjects.delete(cb.value);
+    cb.closest('label').classList.toggle('on',cb.checked);
+    recomputeFilter();
+  });
+  document.getElementById('subAll').addEventListener('click',()=>{
+    selectedSubjects.clear();
+    document.querySelectorAll('#subList input').forEach(c=>{c.checked=true;selectedSubjects.add(c.value);c.closest('label').classList.add('on');});
+    recomputeFilter();
+  });
+  document.getElementById('subClear').addEventListener('click',resetFilters);
+}
+
 function applyFilter(term){
-  term = (term||"").trim();
+  term=(term||"").trim();
+  searchWords = term ? term.toLowerCase().split(/\s+/).filter(Boolean) : [];
+  recomputeFilter();
+}
+
+function resetFilters(){
+  selectedSubjects.clear();
+  searchWords=[];
+  const si=document.getElementById('searchInput'); if(si) si.value='';
+  document.querySelectorAll('#subList input').forEach(c=>{c.checked=false;c.closest('label').classList.remove('on');});
+  recomputeFilter();
+}
+
+function recomputeFilter(){
   const note=document.getElementById('filterNote');
   const clr=document.getElementById('searchClear');
-  if(!term){ clearFilter(); return; }
-  const words = term.toLowerCase().split(/\s+/).filter(Boolean);
-  const matches = QUESTIONS.filter(q=>{ const h=questionHaystack(q); return words.every(w=>h.includes(w)); });
-  filterActive = true;
+  const subs=[...selectedSubjects];
+  if(subs.length===0 && searchWords.length===0){
+    filterActive=false; ACTIVE=QUESTIONS; total=QUESTIONS.length;
+    clr.style.display='none'; note.style.display='none'; note.innerHTML='';
+    boot(); return;
+  }
+  const matches=QUESTIONS.filter(q=>{
+    if(subs.length && !subs.some(k=>q._subjects.includes(k))) return false;
+    if(searchWords.length){ const h=questionHaystack(q); if(!searchWords.every(w=>h.includes(w))) return false; }
+    return true;
+  });
+  filterActive=true;
   clr.style.display='inline-block';
   note.style.display='block';
+  const parts=[];
+  if(subs.length) parts.push('Subjects: '+subs.map(k=>esc(SUBJECT_LABEL[k]||k)).join(', '));
+  if(searchWords.length) parts.push('matching “'+esc(searchWords.join(' '))+'”');
   if(matches.length===0){
     note.className='filternote none';
-    note.innerHTML = `No questions match <strong>“${esc(term)}”</strong>. Try a different topic, or <a href="#" id="clrLink">show all questions</a>.`;
+    note.innerHTML=`No questions found — ${parts.join(' · ')}. <a href="#" id="clrLink">Show all questions</a>.`;
     document.getElementById('restartBtn').style.display='none';
     document.getElementById('counter').textContent='';
     document.getElementById('remaining').textContent='';
     document.getElementById('prog').style.width='0%';
-    document.getElementById('quiz').innerHTML=`<div class="resume"><p>No matching questions for that topic.</p></div>`;
-    const cl=document.getElementById('clrLink'); if(cl) cl.addEventListener('click',e=>{e.preventDefault();clearFilter();});
+    document.getElementById('quiz').innerHTML='<div class="resume"><p>No matching questions for that selection.</p></div>';
+    const cl=document.getElementById('clrLink'); if(cl) cl.addEventListener('click',e=>{e.preventDefault();resetFilters();});
     return;
   }
-  ACTIVE = matches;
   note.className='filternote';
-  note.innerHTML = `Showing <strong>${matches.length}</strong> question${matches.length===1?'':'s'} matching <strong>“${esc(term)}”</strong>. Press <em>Clear</em> to return to all ${QUESTIONS.length}.`;
+  note.innerHTML=`Showing <strong>${matches.length}</strong> of ${QUESTIONS.length} questions — ${parts.join(' · ')}.`;
+  ACTIVE=matches;
   attempts=0;correctAttempts=0;firstCorrect=0;
   firstSeen=new Set();answeredUnique=new Set();current=null;locked=false;
-  total = ACTIVE.length;
+  total=ACTIVE.length;
   ACTIVE.forEach(q=>q.firstAttempt=true);
-  queue = shuffle(ACTIVE.slice());
+  queue=shuffle(ACTIVE.slice());
   document.getElementById('restartBtn').style.display='inline-block';
   next();
-}
-function clearFilter(){
-  filterActive=false;
-  ACTIVE = QUESTIONS;
-  total = QUESTIONS.length;
-  const input=document.getElementById('searchInput'); if(input) input.value='';
-  const clr=document.getElementById('searchClear'); if(clr) clr.style.display='none';
-  const note=document.getElementById('filterNote'); if(note){ note.style.display='none'; note.innerHTML=''; }
-  boot();
 }
 
 document.getElementById('searchInput').addEventListener('keydown',e=>{
   if(e.key==='Enter'){ e.preventDefault(); applyFilter(e.target.value); }
 });
-document.getElementById('searchClear').addEventListener('click',clearFilter);
+document.getElementById('searchClear').addEventListener('click',resetFilters);
 
 document.getElementById('restartBtn').addEventListener('click',confirmRestart);
 document.addEventListener('keydown',e=>{
@@ -430,6 +541,7 @@ document.addEventListener('keydown',e=>{
   }
 });
 
+initSubjects();
 boot();
 </script>
 </body>

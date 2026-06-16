@@ -99,6 +99,10 @@
   .primary:disabled{opacity:.5;cursor:not-allowed}
   .secondary{background:#21262d;color:var(--text);border-color:var(--border)}
   .secondary:hover{border-color:#8b949e}
+  .actions-right{display:flex;gap:10px;margin-left:auto;flex-wrap:wrap}
+  .ghost{background:transparent;color:var(--muted);border-color:var(--border);font-weight:600}
+  .ghost:hover{color:var(--text);border-color:#8b949e;background:#161b22}
+  .ghost.danger:hover{color:#f85149;border-color:#f85149;background:rgba(248,81,73,.08)}
   .hint{color:var(--muted);font-size:13px;margin-top:10px}
   @media (max-width:560px){
     header{flex-wrap:wrap}
@@ -239,6 +243,25 @@ let chosenCount = 0;           // 0 = all of ACTIVE
 let testSeen = new Set();      // ids included in the current main test
 
 const LASTTEST_KEY = STORE_KEY + "_lasttest";
+const RETIRED_KEY = STORE_KEY + "_retired";
+
+// questions the tester marked "don't ask again" — keyed by question text so the
+// list survives rebuilds (where numeric ids may shift) and spans all sessions
+let retiredKeys = new Set();
+function qKey(q){
+  const s=String(q.question||'').toLowerCase().replace(/[^a-z0-9]+/g,' ').trim();
+  let h=0; for(let i=0;i<s.length;i++){ h=(h*31 + s.charCodeAt(i))|0; }
+  return (h>>>0).toString(36)+'_'+s.length;
+}
+function isRetired(q){ return retiredKeys.has(q._key); }
+function livePool(set){ return (set||ACTIVE).filter(q=>!isRetired(q)); }
+function loadRetired(){
+  try{ const r=localStorage.getItem(RETIRED_KEY); if(!r) return new Set();
+    const a=JSON.parse(r); return new Set(Array.isArray(a)?a:[]); }catch(e){ return new Set(); }
+}
+function saveRetired(){
+  try{ localStorage.setItem(RETIRED_KEY, JSON.stringify([...retiredKeys])); }catch(e){}
+}
 
 function transient(){ return filterActive || focusActive; }
 function shuffle(a){ for(let i=a.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[a[i],a[j]]=[a[j],a[i]];} return a; }
@@ -312,7 +335,8 @@ function updateImproveBtn(){
 
 // ---- lifecycle ----
 function boot(){
-  QUESTIONS.forEach((q,i)=>{ q.id=i; q.firstAttempt=true; });
+  QUESTIONS.forEach((q,i)=>{ q.id=i; q.firstAttempt=true; q._key=qKey(q); });
+  retiredKeys = loadRetired();
   const saved = loadProgress();
   if(saved){ showResume(saved); } else { freshStart(); }
 }
@@ -340,7 +364,7 @@ function eligible(typeSel, includeSeen, includeMissed, seenSet, missedSet){
   const typeOk = q => typeSel==='both' ? true
                     : typeSel==='multiple' ? q.type==='multiple'
                     : q.type!=='multiple';
-  const base = ACTIVE.filter(typeOk);
+  const base = ACTIVE.filter(q=>typeOk(q) && !isRetired(q));
   let forced = (includeMissed && missedSet) ? base.filter(q=>missedSet.has(q.id)) : [];
   const fIds = new Set(forced.map(q=>q.id));
   let rest = base.filter(q=>!fIds.has(q.id));
@@ -357,25 +381,31 @@ function showSetup(){
   document.getElementById('saveState').textContent='';
   document.getElementById('prog').style.width='0%';
 
-  const multiCount = ACTIVE.filter(q=>q.type==='multiple').length;
-  const singleCount = ACTIVE.length - multiCount;
+  const liveQs = livePool();
+  const liveTotal = liveQs.length;
+  const multiCount = liveQs.filter(q=>q.type==='multiple').length;
+  const singleCount = liveTotal - multiCount;
 
   const last = loadLastTest();
-  const activeIds = new Set(ACTIVE.map(q=>q.id));
+  const activeIds = new Set(liveQs.map(q=>q.id));
   const seenIds = last ? last.seen.filter(id=>activeIds.has(id)) : [];
   const missedIds = last ? last.missed.filter(id=>activeIds.has(id)) : [];
   const seenSet = new Set(seenIds), missedSet = new Set(missedIds);
-  const showPrior = seenIds.length>0 && seenIds.length < ACTIVE.length;
+  const showPrior = seenIds.length>0 && seenIds.length < liveTotal;
 
   let typeSel = 'both';
 
-  const priorHtml = showPrior ? `
+  const retiredNote = retiredKeys.size
+    ? `<p class="ptitle" style="margin-top:10px">${retiredKeys.size} question${retiredKeys.size>1?'s':''} hidden via “Don’t ask again”. <a href="#" id="restoreRetired">Restore them</a>.</p>` : '';
+
+  const priorHtml = (showPrior || retiredNote) ? `
       <div class="prioropts">
-        <p class="ptitle">You last took a test covering <b>${seenIds.length}</b> of ${ACTIVE.length} questions.</p>
+        ${showPrior ? `<p class="ptitle">You last took a test covering <b>${seenIds.length}</b> of ${liveTotal} questions.</p>
         <label class="chk"><input type="checkbox" id="optSeen" checked>
           <span>Include questions <b>from your last test</b> (uncheck to draw only questions you haven't seen yet)</span></label>
         ${missedIds.length ? `<label class="chk"><input type="checkbox" id="optMissed">
-          <span>Re-include the <b>${missedIds.length}</b> question${missedIds.length>1?'s':''} you <b>missed last time</b></span></label>` : ''}
+          <span>Re-include the <b>${missedIds.length}</b> question${missedIds.length>1?'s':''} you <b>missed last time</b></span></label>` : ''}` : ''}
+        ${retiredNote}
       </div>` : '';
 
   document.getElementById('quiz').innerHTML=`
@@ -383,7 +413,7 @@ function showSetup(){
       <h2 style="margin:0 0 6px">Set up your practice test</h2>
       <p class="lead">Pick the question types, how many you want, and start. The slider locks to steps of 25.</p>
       <div class="typesel" id="typeSel">
-        <button data-t="both" class="on">Both<span class="cnt">${ACTIVE.length}</span></button>
+        <button data-t="both" class="on">Both<span class="cnt">${liveTotal}</span></button>
         <button data-t="single">Single answer<span class="cnt">${singleCount}</span></button>
         <button data-t="multiple">Multiple answer<span class="cnt">${multiCount}</span></button>
       </div>
@@ -454,6 +484,8 @@ function showSetup(){
     document.getElementById('optSeen').addEventListener('change',rebuild);
     const om=document.getElementById('optMissed'); if(om) om.addEventListener('change',rebuild);
   }
+  const rr=document.getElementById('restoreRetired');
+  if(rr) rr.addEventListener('click',e=>{ e.preventDefault(); retiredKeys=new Set(); saveRetired(); showSetup(); });
   document.getElementById('startBtn').addEventListener('click',()=>{
     if(document.getElementById('startBtn').disabled) return;
     const i=+document.getElementById('cntSlider').value;
@@ -524,8 +556,9 @@ function resume(s){
   testSeen=new Set(s.seen||s.queue||[]);
   QUESTIONS.forEach((q,i)=>{ q.firstAttempt = s.firstAttempt ? !!s.firstAttempt[i] : true; });
   const byId = id => QUESTIONS[id];
-  queue = (s.queue||[]).map(byId);
-  total = s.total || ACTIVE.length;
+  const droppedRetired = (s.queue||[]).filter(id=>{const q=byId(id); return q && isRetired(q);}).length;
+  queue = (s.queue||[]).map(byId).filter(q=>q && !isRetired(q));
+  total = (s.total || ACTIVE.length) - droppedRetired;
   focusActive=false; setFocusBanner(false);
   document.getElementById('restartBtn').style.display='inline-block';
   document.getElementById('improveBtn').style.display='inline-block';
@@ -534,6 +567,7 @@ function resume(s){
     current=null; locked=false; next();
   } else {
     current = s.current!=null ? byId(s.current) : null;
+    if(current && isRetired(current)) current=null;
     locked=false;
     if(!current){ next(); } else { render(); updateMeta(); }
   }
@@ -599,6 +633,10 @@ function render(){
   html += `<div class="actions">
       <button id="submit" class="primary" disabled>Submit</button>
       <button id="nextBtn" class="secondary" style="display:none">Next →</button>
+      <div class="actions-right" id="skipWrap">
+        <button id="skipBtn" class="ghost" title="Skip this question for now — it won't count toward your score">↷ Skip</button>
+        <button id="retireBtn" class="ghost danger" title="Remove this question from all future tests (you already know it)">✕ Don't ask again</button>
+      </div>
    </div>
    <div class="hint${isMulti?' multi':''}" id="hint">${q.type==='multiple'?(correctCount>1?`Select <span class="num">${correctCount}</span> answers.`:'Choose one or more options.'):'Choose one option.'}</div>`;
   document.getElementById('quiz').innerHTML=html;
@@ -609,6 +647,37 @@ function render(){
   });
   document.getElementById('submit').addEventListener('click',grade);
   document.getElementById('nextBtn').addEventListener('click',next);
+  document.getElementById('skipBtn').addEventListener('click',skipCurrent);
+  document.getElementById('retireBtn').addEventListener('click',retireCurrent);
+}
+
+// drop the current question out of this test without grading it.
+// it never touches attempts/correctAttempts, so it is excluded from the % correct.
+function dropCurrent(){
+  if(!current) return;
+  const id=current.id;
+  queue=queue.filter(q=>q.id!==id);   // also removes any reinserted copies
+  if(testSeen.has(id)){ testSeen.delete(id); }
+  if(missedFirst.has(id)){ missedFirst.delete(id); updateImproveBtn(); }
+  if(answeredUnique.has(id)) answeredUnique.delete(id);
+  if(total>0) total--;                // shrink denominator so progress/score reflect only kept items
+}
+function skipCurrent(){
+  if(locked) return;
+  dropCurrent();
+  current=null; locked=false;
+  saveProgress('question');
+  next();
+}
+function retireCurrent(){
+  if(locked) return;
+  const q=current;
+  retiredKeys.add(q._key);
+  saveRetired();
+  dropCurrent();
+  current=null; locked=false;
+  saveProgress('question');
+  next();
 }
 
 function grade(){
@@ -907,6 +976,7 @@ function recomputeFilter(){
     boot(); return;
   }
   const matches=QUESTIONS.filter(q=>{
+    if(isRetired(q)) return false;
     if(subs.length && !subs.some(k=>q._subjects.includes(k))) return false;
     if(searchWords.length){ const h=questionHaystack(q); if(!searchWords.every(w=>h.includes(w))) return false; }
     return true;

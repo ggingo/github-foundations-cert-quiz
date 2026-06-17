@@ -323,7 +323,7 @@ function saveLastTest(){
   if(!testSeen.size) return;
   try{
     localStorage.setItem(LASTTEST_KEY, JSON.stringify({
-      sig: SIG, seen:[...testSeen], missed:[...missedFirst],
+      sig: SIG, seen:[...testSeen], answered:[...firstSeen], missed:[...missedFirst],
       pool: ACTIVE.length, ts: Date.now()
     }));
   }catch(e){}
@@ -430,7 +430,7 @@ function sizeStops(n){
 
 // pick the eligible question pool for the chosen type + prior-test options.
 // returns {forced, rest}: forced = previously-missed questions to guarantee in, rest = the rest.
-function eligible(typeSel, includeSeen, includeMissed, seenSet, missedSet){
+function eligible(typeSel, includeMissed, missedSet, excludeSet){
   const typeOk = q => typeSel==='both' ? true
                     : typeSel==='multiple' ? q.type==='multiple'
                     : q.type!=='multiple';
@@ -438,7 +438,7 @@ function eligible(typeSel, includeSeen, includeMissed, seenSet, missedSet){
   let forced = (includeMissed && missedSet) ? base.filter(q=>missedSet.has(q.id)) : [];
   const fIds = new Set(forced.map(q=>q.id));
   let rest = base.filter(q=>!fIds.has(q.id));
-  if(!includeSeen && seenSet) rest = rest.filter(q=>!seenSet.has(q.id));
+  if(excludeSet && excludeSet.size) rest = rest.filter(q=>!excludeSet.has(q.id));
   return {forced, rest};
 }
 
@@ -462,10 +462,16 @@ function showSetup(){
 
   const last = loadLastTest();
   const activeIds = new Set(liveQs.map(q=>q.id));
-  const seenIds = last ? last.seen.filter(id=>activeIds.has(id)) : [];
+  const lastSeen = last ? last.seen.filter(id=>activeIds.has(id)) : [];                    // full pool drawn last time
+  const lastAnswered = last ? (last.answered||last.seen).filter(id=>activeIds.has(id)) : []; // questions actually shown
+  const answeredSet = new Set(lastAnswered);
+  const unansweredIds = lastSeen.filter(id=>!answeredSet.has(id));                          // drawn but never reached
+  const unansweredSet = new Set(unansweredIds);
   const missedIds = last ? last.missed.filter(id=>activeIds.has(id)) : [];
-  const seenSet = new Set(seenIds), missedSet = new Set(missedIds);
-  const showPrior = seenIds.length>0 && seenIds.length < liveTotal;
+  const missedSet = new Set(missedIds);
+  const showAnswered = lastAnswered.length>0 && lastAnswered.length<liveTotal;
+  const showUnanswered = unansweredIds.length>0;
+  const showPrior = showAnswered || showUnanswered;
 
   let typeSel = 'both';
 
@@ -474,11 +480,13 @@ function showSetup(){
 
   const priorHtml = (showPrior || retiredNote) ? `
       <div class="prioropts">
-        ${showPrior ? `<p class="ptitle">You last took a test covering <b>${seenIds.length}</b> of ${liveTotal} questions.</p>
-        <label class="chk"><input type="checkbox" id="optSeen" checked>
-          <span>Include questions <b>from your last test</b> (uncheck to draw only questions you haven't seen yet)</span></label>
+        ${showPrior ? `<p class="ptitle">Your last test drew <b>${lastSeen.length}</b> of ${liveTotal} questions${lastAnswered.length?` — you answered <b>${lastAnswered.length}</b>`:''}${unansweredIds.length?`, with <b>${unansweredIds.length}</b> left unanswered`:''}.</p>` : ''}
+        ${showAnswered ? `<label class="chk"><input type="checkbox" id="optSeen" checked>
+          <span>Include the <b>${lastAnswered.length}</b> question${lastAnswered.length>1?'s':''} you <b>answered last test</b> (uncheck to skip them)</span></label>` : ''}
+        ${showUnanswered ? `<label class="chk"><input type="checkbox" id="optUnanswered" checked>
+          <span>Include the <b>${unansweredIds.length}</b> <b>unanswered question${unansweredIds.length>1?'s':''}</b> from your last test</span></label>` : ''}
         ${missedIds.length ? `<label class="chk"><input type="checkbox" id="optMissed">
-          <span>Re-include the <b>${missedIds.length}</b> question${missedIds.length>1?'s':''} you <b>missed last time</b></span></label>` : ''}` : ''}
+          <span>Re-include the <b>${missedIds.length}</b> question${missedIds.length>1?'s':''} you <b>missed last time</b></span></label>` : ''}
         ${retiredNote}
       </div>` : '';
 
@@ -509,16 +517,22 @@ function showSetup(){
     </div>`;
 
   const getOpts = ()=>{
-    const includeSeen = showPrior ? document.getElementById('optSeen').checked : true;
+    const se=document.getElementById('optSeen');
+    const ue=document.getElementById('optUnanswered');
+    const includeAnswered = se ? se.checked : true;
+    const includeUnanswered = ue ? ue.checked : true;
     const om = document.getElementById('optMissed');
     const includeMissed = !!(om && om.checked);
-    return {includeSeen, includeMissed};
+    const excludeSet = new Set();
+    if(!includeAnswered) answeredSet.forEach(id=>excludeSet.add(id));
+    if(!includeUnanswered) unansweredSet.forEach(id=>excludeSet.add(id));
+    return {includeMissed, excludeSet};
   };
 
   let stops=[], idx=0;
   function available(){
-    const {includeSeen, includeMissed} = getOpts();
-    const {forced, rest} = eligible(typeSel, includeSeen, includeMissed, seenSet, missedSet);
+    const {includeMissed, excludeSet} = getOpts();
+    const {forced, rest} = eligible(typeSel, includeMissed, missedSet, excludeSet);
     return forced.length + rest.length;
   }
   function rebuild(){
@@ -563,10 +577,9 @@ function showSetup(){
       rebuild();
     });
   });
-  if(showPrior){
-    document.getElementById('optSeen').addEventListener('change',rebuild);
-    const om=document.getElementById('optMissed'); if(om) om.addEventListener('change',rebuild);
-  }
+  const optSeenEl=document.getElementById('optSeen'); if(optSeenEl) optSeenEl.addEventListener('change',rebuild);
+  const optUnansEl=document.getElementById('optUnanswered'); if(optUnansEl) optUnansEl.addEventListener('change',rebuild);
+  const om=document.getElementById('optMissed'); if(om) om.addEventListener('change',rebuild);
   const rr=document.getElementById('restoreRetired');
   if(rr) rr.addEventListener('click',e=>{ e.preventDefault(); retiredKeys=new Set(); saveRetired(); showSetup(); });
   const resetBtn=document.getElementById('resetAllBtn');
@@ -580,9 +593,9 @@ function showSetup(){
     if(document.getElementById('startBtn').disabled) return;
     const i=+document.getElementById('cntSlider').value;
     const count = (i===stops.length-1) ? 0 : stops[i];
-    const {includeSeen, includeMissed} = getOpts();
+    const {includeMissed, excludeSet} = getOpts();
     const showTimer = !!(document.getElementById('optTimer') && document.getElementById('optTimer').checked);
-    beginTest(count, {typeSel, includeSeen, includeMissed, seenSet, missedSet, showTimer});
+    beginTest(count, {typeSel, includeMissed, excludeSet, missedSet, showTimer});
   });
   rebuild();
 }
@@ -590,7 +603,6 @@ function showSetup(){
 function beginTest(count, opts){
   opts = opts || {};
   const typeSel = opts.typeSel || 'both';
-  const includeSeen = opts.includeSeen !== false;
   const includeMissed = !!opts.includeMissed;
   chosenCount = count;
   attempts=0;correctAttempts=0;firstCorrect=0;
@@ -598,7 +610,7 @@ function beginTest(count, opts){
   firstSeen=new Set();answeredUnique=new Set();current=null;locked=false;
   ACTIVE.forEach(q=>q.firstAttempt=true);
 
-  const {forced, rest} = eligible(typeSel, includeSeen, includeMissed, opts.seenSet, opts.missedSet);
+  const {forced, rest} = eligible(typeSel, includeMissed, opts.missedSet, opts.excludeSet);
   shuffle(forced); shuffle(rest);
   let pool;
   if(count && count>0){

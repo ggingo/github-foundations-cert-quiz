@@ -135,6 +135,8 @@
   .ghost{background:transparent;color:var(--muted);border-color:var(--border);font-weight:600}
   .ghost:hover{color:var(--text);border-color:#8b949e;background:#161b22}
   .ghost.danger:hover{color:#f85149;border-color:#f85149;background:rgba(248,81,73,.08)}
+  .ghost.finish{color:#79c0ff;border-color:#1f4d80}
+  .ghost.finish:hover{color:#cae8ff;border-color:var(--accent);background:rgba(47,129,247,.10)}
   .resetrow{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-top:26px;
     padding-top:18px;border-top:1px solid var(--border);max-width:560px}
   .resetrow .resethint{font-size:12px;color:var(--muted);flex:1;min-width:200px}
@@ -831,6 +833,7 @@ function render(){
       <div class="actions-right" id="skipWrap">
         <button id="skipBtn" class="ghost" title="Skip this question for now — it won't count toward your score">↷ Skip</button>
         <button id="retireBtn" class="ghost danger" title="Remove this question from all future tests (you already know it)">✕ Don't ask again</button>
+        <button id="finishBtn" class="ghost finish" title="End the test now and tally your results from the questions you've completed so far">🏁 Finish test</button>
       </div>
    </div>
    <div class="hint${isMulti?' multi':''}" id="hint">${q.type==='multiple'?(correctCount>1?`Select <span class="num">${correctCount}</span> answers.`:'Choose one or more options.'):'Choose one option.'}</div>
@@ -845,6 +848,7 @@ function render(){
   document.getElementById('nextBtn').addEventListener('click',next);
   document.getElementById('skipBtn').addEventListener('click',skipCurrent);
   document.getElementById('retireBtn').addEventListener('click',retireCurrent);
+  document.getElementById('finishBtn').addEventListener('click',finishTest);
   const rov=document.getElementById('resumeOverlayBtn');
   if(rov) rov.addEventListener('click',togglePause);
   beginQuestionTimer();
@@ -885,6 +889,15 @@ function retireCurrent(){             // allowed before OR after submitting
   current=null; locked=false;
   saveProgress('question');
   next();
+}
+// end the test early and tally results from only the questions completed so far
+function finishTest(){
+  const done=Object.keys(qStats).length;
+  if(!confirm(`End the test now?\n\nYour results will be tallied from the ${done} question${done===1?'':'s'} you've completed so far. Unanswered questions are not counted.`)) return;
+  endQuestionTimer();
+  total=done;                 // denominator reflects only what was actually answered
+  queue=[]; current=null; locked=false;
+  summary();
 }
 
 function grade(){

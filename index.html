@@ -51,8 +51,13 @@
   .sublist label.on{background:#10243b}
   .sublist input{width:16px;height:16px;accent-color:var(--accent);flex:0 0 auto;cursor:pointer}
   .sublist .lbl{flex:1;min-width:0;line-height:1.35}
+  .sublist .cntwrap{display:flex;align-items:center;gap:6px;flex:0 0 auto}
   .sublist .cnt{font-size:11.5px;color:var(--muted);background:#0d1117;border:1px solid var(--border);
-    border-radius:999px;padding:1px 9px;line-height:1.5;flex:0 0 auto}
+    border-radius:999px;padding:1px 9px;line-height:1.5;white-space:nowrap}
+  .sublist .cnt.answered{color:#fff;font-weight:600;background:#10243b;border-color:#1f6feb}
+  .sublist .savg{font-size:11px;color:#7ee0a0;background:#0d1117;border:1px solid #2ea04326;
+    border-radius:999px;padding:1px 7px;line-height:1.5;white-space:nowrap}
+  .sublist .savg:empty{display:none}
   @media (max-width:1080px){ .sidebar{flex-basis:240px} }
   @media (max-width:860px){
     .layout{flex-direction:column;gap:18px}
@@ -446,6 +451,8 @@ function showSetup(){
   document.getElementById('remaining').textContent='';
   document.getElementById('saveState').textContent='';
   document.getElementById('prog').style.width='0%';
+  document.querySelectorAll('#subList .cnt').forEach(el=>{el.textContent=SUBJ_TOTAL[el.dataset.key]||0;el.classList.remove('answered');});
+  document.querySelectorAll('#subList .savg').forEach(el=>el.textContent='');
 
   const liveQs = livePool();
   const liveTotal = liveQs.length;
@@ -790,6 +797,7 @@ function updateMeta(){
   document.getElementById('remaining').textContent = `${queue.length} in queue · ${attempts} attempts`;
   document.getElementById('prog').style.width = (total? (done/total*100):0) + '%';
   updateScore();
+  updateSubjectProgress();
 }
 
 function next(){
@@ -1146,6 +1154,7 @@ SUBJECTS.forEach(s=>SUBJECT_LABEL[s.key]=s.label);
 
 let selectedSubjects=new Set();
 let searchWords=[];
+let SUBJ_TOTAL={};
 
 function questionHaystack(q){
   let s=(q.question||"");
@@ -1164,12 +1173,13 @@ function initSubjects(){
   });
   const counts={};
   QUESTIONS.forEach(q=>q._subjects.forEach(k=>counts[k]=(counts[k]||0)+1));
+  SUBJ_TOTAL=counts;
   let html='';
   for(const s of SUBJECTS){
     const c=counts[s.key]||0; if(!c) continue;
-    html+=`<li><label><input type="checkbox" value="${s.key}"><span class="lbl">${esc(s.label)}</span><span class="cnt">${c}</span></label></li>`;
+    html+=`<li><label><input type="checkbox" value="${s.key}"><span class="lbl">${esc(s.label)}</span><span class="cntwrap"><span class="savg" data-key="${s.key}"></span><span class="cnt" data-key="${s.key}">${c}</span></span></label></li>`;
   }
-  if(counts['general']) html+=`<li><label><input type="checkbox" value="general"><span class="lbl">General / Other</span><span class="cnt">${counts['general']}</span></label></li>`;
+  if(counts['general']) html+=`<li><label><input type="checkbox" value="general"><span class="lbl">General / Other</span><span class="cntwrap"><span class="savg" data-key="general"></span><span class="cnt" data-key="general">${counts['general']}</span></span></label></li>`;
   const ul=document.getElementById('subList');
   ul.innerHTML=html;
   ul.addEventListener('change',e=>{
@@ -1184,6 +1194,27 @@ function initSubjects(){
     recomputeFilter();
   });
   document.getElementById('subClear').addEventListener('click',resetFilters);
+  updateSubjectProgress();
+}
+
+// live-update the sidebar subject badges: answered/total, plus avg time per subject when the live timer is on
+function updateSubjectProgress(){
+  const ans={},ms={},n={};
+  for(const id in qStats){
+    const q=QUESTIONS[id]; if(!q) continue;
+    const st=qStats[id];
+    const subs=(q._subjects&&q._subjects.length)?q._subjects:['general'];
+    for(const k of subs){ ans[k]=(ans[k]||0)+1; ms[k]=(ms[k]||0)+st.ms; n[k]=(n[k]||0)+st.n; }
+  }
+  document.querySelectorAll('#subList .cnt').forEach(el=>{
+    const k=el.dataset.key, tot=SUBJ_TOTAL[k]||0, a=ans[k]||0;
+    el.textContent = a>0 ? `${a}/${tot}` : `${tot}`;
+    el.classList.toggle('answered', a>0);
+  });
+  document.querySelectorAll('#subList .savg').forEach(el=>{
+    const k=el.dataset.key, a=ans[k]||0;
+    el.textContent = (timerShow && a>0 && n[k]>0) ? '⏱ '+fmtAvg(ms[k]/n[k]) : '';
+  });
 }
 
 function applyFilter(term){

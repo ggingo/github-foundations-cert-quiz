@@ -451,6 +451,7 @@ function showSetup(){
   document.getElementById('remaining').textContent='';
   document.getElementById('saveState').textContent='';
   document.getElementById('prog').style.width='0%';
+  SUBJ_TOTAL=SUBJ_FULL;
   document.querySelectorAll('#subList .cnt').forEach(el=>{el.textContent=SUBJ_TOTAL[el.dataset.key]||0;el.classList.remove('answered');});
   document.querySelectorAll('#subList .savg').forEach(el=>el.textContent='');
 
@@ -610,6 +611,7 @@ function beginTest(count, opts){
   queue = pool;
   total = queue.length;
   testSeen = new Set(queue.map(q=>q.id));
+  SUBJ_TOTAL = subjTotals(queue);
   document.getElementById('restartBtn').style.display='inline-block';
   document.getElementById('improveBtn').style.display='inline-block';
   updateImproveBtn();
@@ -646,6 +648,7 @@ function resume(s){
   firstSeen=new Set(s.firstSeen); answeredUnique=new Set(s.answeredUnique);
   missedFirst=new Set(s.missed||[]);
   testSeen=new Set(s.seen||s.queue||[]);
+  SUBJ_TOTAL=subjTotals([...testSeen].map(id=>QUESTIONS[id]));
   qStats=s.stats||{};
   timerShow=!!s.showTimer;
   QUESTIONS.forEach((q,i)=>{ q.firstAttempt = s.firstAttempt ? !!s.firstAttempt[i] : true; });
@@ -1092,6 +1095,7 @@ function startFocus(){
   items.forEach(q=>q.firstAttempt=true);
   queue=shuffle(items.slice());
   total=queue.length;
+  SUBJ_TOTAL=subjTotals(queue);
   document.getElementById('restartBtn').style.display='none';
   document.getElementById('improveBtn').style.display='none';
   setFocusBanner(true);
@@ -1155,6 +1159,7 @@ SUBJECTS.forEach(s=>SUBJECT_LABEL[s.key]=s.label);
 let selectedSubjects=new Set();
 let searchWords=[];
 let SUBJ_TOTAL={};
+let SUBJ_FULL={};
 
 function questionHaystack(q){
   let s=(q.question||"");
@@ -1173,7 +1178,7 @@ function initSubjects(){
   });
   const counts={};
   QUESTIONS.forEach(q=>q._subjects.forEach(k=>counts[k]=(counts[k]||0)+1));
-  SUBJ_TOTAL=counts;
+  SUBJ_FULL=counts; SUBJ_TOTAL=counts;
   let html='';
   for(const s of SUBJECTS){
     const c=counts[s.key]||0; if(!c) continue;
@@ -1195,6 +1200,13 @@ function initSubjects(){
   });
   document.getElementById('subClear').addEventListener('click',resetFilters);
   updateSubjectProgress();
+}
+
+// tally how many questions in a given set belong to each subject (used to scope the sidebar totals to the active test)
+function subjTotals(qs){
+  const c={};
+  qs.forEach(q=>{ if(!q) return; const subs=(q._subjects&&q._subjects.length)?q._subjects:['general']; subs.forEach(k=>c[k]=(c[k]||0)+1); });
+  return c;
 }
 
 // live-update the sidebar subject badges: answered/total, plus avg time per subject when the live timer is on
@@ -1274,6 +1286,7 @@ function recomputeFilter(){
   qStats={};
   firstSeen=new Set();answeredUnique=new Set();current=null;locked=false;
   total=ACTIVE.length;
+  SUBJ_TOTAL=subjTotals(ACTIVE);
   ACTIVE.forEach(q=>q.firstAttempt=true);
   queue=shuffle(ACTIVE.slice());
   document.getElementById('restartBtn').style.display='inline-block';
